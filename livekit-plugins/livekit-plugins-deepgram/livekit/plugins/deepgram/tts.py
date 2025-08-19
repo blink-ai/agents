@@ -101,7 +101,7 @@ class TTS(tts.TTS):
         )
 
     async def _connect_ws(self, timeout: float) -> aiohttp.ClientWebSocketResponse:
-        logger.info("Livekit-Plugins-Deepgram: Connecting to Deepgram WebSocket")
+        logger.warning("Livekit-Plugins-Deepgram: Connecting to Deepgram WebSocket")
         session = self._ensure_session()
         config = {
             "encoding": self._opts.encoding,
@@ -118,7 +118,7 @@ class TTS(tts.TTS):
         )
 
     async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        logger.info("Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
+        logger.warning("Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
         await ws.close()
 
     def _ensure_session(self) -> aiohttp.ClientSession:
@@ -141,13 +141,13 @@ class TTS(tts.TTS):
     def synthesize(
         self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
     ) -> ChunkedStream:
-        logger.info("Livekit-Plugins-Deepgram: Synthesizing text")
+        logger.warning("Livekit-Plugins-Deepgram: Synthesizing text")
         return ChunkedStream(tts=self, input_text=text, conn_options=conn_options)
 
     def stream(
         self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
     ) -> SynthesizeStream:
-        logger.info("Livekit-Plugins-Deepgram: Streaming text")
+        logger.warning("Livekit-Plugins-Deepgram: Streaming text")
         stream = SynthesizeStream(tts=self, conn_options=conn_options)
         self._streams.add(stream)
         return stream
@@ -157,7 +157,7 @@ class TTS(tts.TTS):
         self._pool.prewarm()
 
     async def aclose(self) -> None:
-        logger.info("Livekit-Plugins-Deepgram: Closing TTS")
+        logger.warning("Livekit-Plugins-Deepgram: Closing TTS")
         for stream in list(self._streams):
             await stream.aclose()
 
@@ -173,7 +173,7 @@ class ChunkedStream(tts.ChunkedStream):
         self._opts = replace(tts._opts)
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        logger.info("Livekit-Plugins-Deepgram: Running ChunkedStream")
+        logger.warning("Livekit-Plugins-Deepgram: Running ChunkedStream")
         try:
             async with self._tts._ensure_session().post(
                 _to_deepgram_url(
@@ -226,7 +226,7 @@ class SynthesizeStream(tts.SynthesizeStream):
         self._segments_ch = utils.aio.Chan[tokenize.WordStream]()
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        logger.info("Livekit-Plugins-Deepgram: Running SynthesizeStream")
+        logger.warning("Livekit-Plugins-Deepgram: Running SynthesizeStream")
         request_id = utils.shortuuid()
         output_emitter.initialize(
             request_id=request_id,
@@ -276,7 +276,7 @@ class SynthesizeStream(tts.SynthesizeStream):
     async def _run_ws(
         self, word_stream: tokenize.WordStream, output_emitter: tts.AudioEmitter
     ) -> None:
-        logger.info("Livekit-Plugins-Deepgram: Running _run_ws")
+        logger.warning("Livekit-Plugins-Deepgram: Running _run_ws")
         segment_id = utils.shortuuid()
         output_emitter.start_segment(segment_id=segment_id)
 
@@ -316,7 +316,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                         logger.debug("Unknown message type: %s", resp)
 
         async with self._tts._pool.connection(timeout=self._conn_options.timeout) as ws:
-            logger.info("Livekit-Plugins-Deepgram: Borrowing ws connection from pool")
+            logger.warning("Livekit-Plugins-Deepgram: Borrowing ws connection from pool")
             tasks = [
                 asyncio.create_task(send_task(ws)),
                 asyncio.create_task(recv_task(ws)),
@@ -326,4 +326,4 @@ class SynthesizeStream(tts.SynthesizeStream):
                 await asyncio.gather(*tasks)
             finally:
                 await utils.aio.gracefully_cancel(*tasks)
-                logger.info("Livekit-Plugins-Deepgram: Returning ws connection to pool")
+                logger.warning("Livekit-Plugins-Deepgram: Returning ws connection to pool")
