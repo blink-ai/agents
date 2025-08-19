@@ -221,8 +221,21 @@ class ChunkedStream(ABC):
                 trace_types.ATTR_TTS_LABEL: self._tts.label,
             }
         )
+        
+        logger.info(
+            "Livekit-Agents-TTS: event=TTS_CHUNKED_STREAM_START tts_label=%s input_length=%d max_retry=%d",
+            self._tts.label,
+            len(self._input_text),
+            self._conn_options.max_retry,
+        )
 
         for i in range(self._conn_options.max_retry + 1):
+            if i > 0:
+                logger.info(
+                    "Livekit-Agents-TTS: event=TTS_CHUNKED_STREAM_RETRY tts_label=%s attempt=%d",
+                    self._tts.label,
+                    i + 1,
+                )
             output_emitter = AudioEmitter(label=self._tts.label, dst_ch=self._event_ch)
             try:
                 with tracer.start_as_current_span("tts_request_run") as attempt_span:
@@ -240,14 +253,33 @@ class ChunkedStream(ABC):
                 if output_emitter.pushed_duration() <= 0.0:
                     raise APIError("no audio frames were pushed")
 
+                logger.info(
+                    "Livekit-Agents-TTS: event=TTS_CHUNKED_STREAM_SUCCESS tts_label=%s attempt=%d audio_duration=%.3fs",
+                    self._tts.label,
+                    i + 1,
+                    output_emitter.pushed_duration(),
+                )
                 current_span.set_attribute(trace_types.ATTR_TTS_INPUT_TEXT, self._input_text)
                 return
             except APIError as e:
                 retry_interval = self._conn_options._interval_for_retry(i)
                 if self._conn_options.max_retry == 0 or self._conn_options.max_retry == i:
+                    logger.error(
+                        "Livekit-Agents-TTS: event=TTS_CHUNKED_STREAM_FAILED tts_label=%s attempt=%d error=%s",
+                        self._tts.label,
+                        i + 1,
+                        str(e),
+                    )
                     self._emit_error(e, recoverable=False)
                     raise
                 else:
+                    logger.warning(
+                        "Livekit-Agents-TTS: event=TTS_CHUNKED_STREAM_ERROR_RETRY tts_label=%s attempt=%d error=%s retry_in=%.1fs",
+                        self._tts.label,
+                        i + 1,
+                        str(e),
+                        retry_interval,
+                    )
                     self._emit_error(e, recoverable=True)
                     logger.warning(
                         f"failed to synthesize speech, retrying in {retry_interval}s",
@@ -347,8 +379,20 @@ class SynthesizeStream(ABC):
                 trace_types.ATTR_TTS_LABEL: self._tts.label,
             }
         )
+        
+        logger.info(
+            "Livekit-Agents-TTS: event=TTS_SYNTHESIZE_STREAM_START tts_label=%s max_retry=%d",
+            self._tts.label,
+            self._conn_options.max_retry,
+        )
 
         for i in range(self._conn_options.max_retry + 1):
+            if i > 0:
+                logger.info(
+                    "Livekit-Agents-TTS: event=TTS_SYNTHESIZE_STREAM_RETRY tts_label=%s attempt=%d",
+                    self._tts.label,
+                    i + 1,
+                )
             output_emitter = AudioEmitter(label=self._tts.label, dst_ch=self._event_ch)
             try:
                 with tracer.start_as_current_span("tts_request_run") as attempt_span:
@@ -373,14 +417,35 @@ class SynthesizeStream(ABC):
                             f"but got {output_emitter.num_segments}"
                         )
 
+                logger.info(
+                    "Livekit-Agents-TTS: event=TTS_SYNTHESIZE_STREAM_SUCCESS tts_label=%s attempt=%d segments=%d text_length=%d total_audio_duration=%.3fs",
+                    self._tts.label,
+                    i + 1,
+                    self._num_segments,
+                    len(self._pushed_text),
+                    sum(output_emitter._audio_durations) if hasattr(output_emitter, '_audio_durations') else 0.0,
+                )
                 current_span.set_attribute(trace_types.ATTR_TTS_INPUT_TEXT, self._pushed_text)
                 return
             except APIError as e:
                 retry_interval = self._conn_options._interval_for_retry(i)
                 if self._conn_options.max_retry == 0 or self._conn_options.max_retry == i:
+                    logger.error(
+                        "Livekit-Agents-TTS: event=TTS_SYNTHESIZE_STREAM_FAILED tts_label=%s attempt=%d error=%s",
+                        self._tts.label,
+                        i + 1,
+                        str(e),
+                    )
                     self._emit_error(e, recoverable=False)
                     raise
                 else:
+                    logger.warning(
+                        "Livekit-Agents-TTS: event=TTS_SYNTHESIZE_STREAM_ERROR_RETRY tts_label=%s attempt=%d error=%s retry_in=%.1fs",
+                        self._tts.label,
+                        i + 1,
+                        str(e),
+                        retry_interval,
+                    )
                     self._emit_error(e, recoverable=True)
                     logger.warning(
                         f"failed to synthesize speech, retrying in {retry_interval}s",
@@ -473,6 +538,13 @@ class SynthesizeStream(ABC):
             return
 
         self._pushed_text += token
+        
+        logger.debug(
+            "Livekit-Agents-TTS: event=TTS_STREAM_PUSH_TEXT tts_label=%s token_length=%d total_text_length=%d",
+            self._tts.label,
+            len(token),
+            len(self._pushed_text),
+        )
 
         if self._metrics_task is None:
             self._metrics_task = asyncio.create_task(
@@ -499,6 +571,12 @@ class SynthesizeStream(ABC):
             return
 
         if self._mtc_text:
+            logger.info(
+                "Livekit-Agents-TTS: event=TTS_STREAM_FLUSH tts_label=%s segment_text_length=%d num_segments=%d",
+                self._tts.label,
+                len(self._mtc_text),
+                self._num_segments,
+            )
             self._mtc_pending_texts.append(self._mtc_text)
             self._mtc_text = ""
 
@@ -506,11 +584,23 @@ class SynthesizeStream(ABC):
 
     def end_input(self) -> None:
         """Mark the end of input, no more text will be pushed"""
+        logger.info(
+            "Livekit-Agents-TTS: event=TTS_STREAM_END_INPUT tts_label=%s total_text_length=%d num_segments=%d",
+            self._tts.label,
+            len(self._pushed_text),
+            self._num_segments,
+        )
         self.flush()
         self._input_ch.close()
 
     async def aclose(self) -> None:
         """Close ths stream immediately"""
+        logger.info(
+            "Livekit-Agents-TTS: event=TTS_STREAM_CLOSE tts_label=%s total_text_length=%d num_segments=%d",
+            self._tts.label,
+            len(self._pushed_text),
+            self._num_segments,
+        )
         await aio.cancel_and_wait(self._task)
         self._event_ch.close()
         self._input_ch.close()
