@@ -74,9 +74,9 @@ class ClientTracker:
                 connection_info = f"{self.host}:{self.port}"
                 
             await self.redis_client.ping()
-            self.logger.info(f"ClientTracker: Connected to Redis at {connection_info}")
+            print(f"ClientTracker: Connected to Redis at {connection_info}")
         except Exception as e:
-            self.logger.error(f"ClientTracker: Failed to connect to Redis: {e}")
+            print(f"ClientTracker: Failed to connect to Redis: {e}")
             self.redis_client = None
 
     async def track_connection_created(self) -> None:
