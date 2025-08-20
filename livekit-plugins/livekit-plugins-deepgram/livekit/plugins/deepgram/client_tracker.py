@@ -4,6 +4,7 @@ Simple client tracking system for Deepgram TTS connections.
 This module provides basic Redis-based connection tracking using INCR/DECR operations.
 """
 
+import json
 import logging
 import os
 import time
@@ -86,10 +87,20 @@ class ClientTracker:
         try:
             current_count = await self.redis_client.incr(self.redis_key)
             timestamp = datetime.now().isoformat()
+            instance_id = os.environ.get("INSTANCE_ID", "unknown")
             
-            print(
-                f"Deepgram connection created - Active connections: {current_count} at {timestamp}"
-            )
+            # Structured log for Better Stack
+            connection_event = {
+                "event_type": "connection_created",
+                "service": "deepgram_tts",
+                "instance_id": instance_id,
+                "active_connections": current_count,
+                "timestamp": timestamp,
+                "metric_name": "deepgram_active_connections",
+                "metric_value": current_count
+            }
+            
+            print(f"DEEPGRAM_METRIC: {json.dumps(connection_event)}")
             
         except Exception as e:
             print(f"ClientTracker: Failed to increment connection count: {e}")
@@ -107,10 +118,20 @@ class ClientTracker:
                 current_count = 0
                 
             timestamp = datetime.now().isoformat()
+            instance_id = os.environ.get("INSTANCE_ID", "unknown")
             
-            print(
-                f"Deepgram connection closed - Active connections: {current_count} at {timestamp}"
-            )
+            # Structured log for Better Stack
+            connection_event = {
+                "event_type": "connection_closed",
+                "service": "deepgram_tts",
+                "instance_id": instance_id,
+                "active_connections": current_count,
+                "timestamp": timestamp,
+                "metric_name": "deepgram_active_connections",
+                "metric_value": current_count
+            }
+            
+            print(f"DEEPGRAM_METRIC: {json.dumps(connection_event)}")
             
         except Exception as e:
             print(f"ClientTracker: Failed to decrement connection count: {e}")
