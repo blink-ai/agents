@@ -26,6 +26,7 @@ from livekit.agents.utils import is_given
 
 from ._utils import _to_deepgram_url
 from .log import logger
+from .client_tracker import ClientTracker
 
 BASE_URL = "https://api.deepgram.com/v1/speak"
 NUM_CHANNELS = 1
@@ -93,6 +94,10 @@ class TTS(tts.TTS):
         self._session = http_session
         self._streams = weakref.WeakSet[SynthesizeStream]()
 
+        # Initialize client tracker
+        self._client_tracker: ClientTracker | None = None
+        self._client_tracker = ClientTracker()
+
         self._pool = utils.ConnectionPool[aiohttp.ClientWebSocketResponse](
             connect_cb=self._connect_ws,
             close_cb=self._close_ws,
@@ -109,16 +114,28 @@ class TTS(tts.TTS):
             "sample_rate": self._opts.sample_rate,
             "mip_opt_out": self._opts.mip_opt_out,
         }
-        return await asyncio.wait_for(
+        
+        ws = await asyncio.wait_for(
             session.ws_connect(
                 _to_deepgram_url(config, self._opts.base_url, websocket=True),
                 headers={"Authorization": f"Token {self._opts.api_key}"},
             ),
             timeout,
         )
+        
+        # Track connection creation
+        if self._client_tracker:
+            await self._client_tracker.track_connection_created()
+        
+        return ws
 
     async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         print("Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
+        
+        # Track connection closure
+        if self._client_tracker:
+            await self._client_tracker.track_connection_closed()
+        
         await ws.close()
 
     def _ensure_session(self) -> aiohttp.ClientSession:
@@ -154,6 +171,11 @@ class TTS(tts.TTS):
 
     def prewarm(self) -> None:
         print("Livekit-Plugins-Deepgram: Prewarming TTS")
+        
+        # Initialize client tracker if not already done
+        if self._client_tracker:
+            asyncio.create_task(self._client_tracker.initialize())
+        
         self._pool.prewarm()
 
     async def aclose(self) -> None:
@@ -164,6 +186,10 @@ class TTS(tts.TTS):
         self._streams.clear()
 
         await self._pool.aclose()
+        
+        # Close client tracker
+        if self._client_tracker:
+            await self._client_tracker.aclose()
 
 
 class ChunkedStream(tts.ChunkedStream):
