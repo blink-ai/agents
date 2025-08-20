@@ -87,12 +87,12 @@ class ClientTracker:
             current_count = await self.redis_client.incr(self.redis_key)
             timestamp = datetime.now().isoformat()
             
-            self.logger.info(
+            print(
                 f"Deepgram connection created - Active connections: {current_count} at {timestamp}"
             )
             
         except Exception as e:
-            self.logger.error(f"ClientTracker: Failed to increment connection count: {e}")
+            print(f"ClientTracker: Failed to increment connection count: {e}")
 
     async def track_connection_closed(self) -> None:
         """Track when a connection is closed using Redis DECR."""
@@ -108,12 +108,12 @@ class ClientTracker:
                 
             timestamp = datetime.now().isoformat()
             
-            self.logger.info(
+            print(
                 f"Deepgram connection closed - Active connections: {current_count} at {timestamp}"
             )
             
         except Exception as e:
-            self.logger.error(f"ClientTracker: Failed to decrement connection count: {e}")
+            print(f"ClientTracker: Failed to decrement connection count: {e}")
 
     async def get_active_connections(self) -> int:
         """Get current active connection count."""
@@ -124,7 +124,7 @@ class ClientTracker:
             count = await self.redis_client.get(self.redis_key)
             return int(count) if count else 0
         except Exception as e:
-            self.logger.error(f"ClientTracker: Failed to get connection count: {e}")
+            print(f"ClientTracker: Failed to get connection count: {e}")
             return 0
 
     async def aclose(self) -> None:
@@ -132,6 +132,6 @@ class ClientTracker:
         if self.redis_client:
             try:
                 await self.redis_client.close()
-                self.logger.info("ClientTracker: Redis connection closed")
+                print("ClientTracker: Redis connection closed")
             except Exception as e:
-                self.logger.error(f"ClientTracker: Failed to close Redis connection: {e}")
+                print(f"ClientTracker: Failed to close Redis connection: {e}")
