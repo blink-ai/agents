@@ -5,6 +5,7 @@ import json
 import os
 import weakref
 from dataclasses import dataclass, replace
+from typing import Optional
 
 import aiohttp
 
@@ -26,7 +27,12 @@ from livekit.agents.utils import is_given
 
 from ._utils import _to_deepgram_url
 from .log import logger
-from .client_tracker import ClientTracker
+
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
 
 BASE_URL = "https://api.deepgram.com/v1/speak"
 NUM_CHANNELS = 1
@@ -55,6 +61,7 @@ class TTS(tts.TTS):
         word_tokenizer: NotGivenOr[tokenize.WordTokenizer] = NOT_GIVEN,
         http_session: aiohttp.ClientSession | None = None,
         mip_opt_out: bool = False,
+        redis_client: Optional["redis.Redis"] = None,
     ) -> None:
         """
         Create a new instance of Deepgram TTS.
@@ -67,6 +74,7 @@ class TTS(tts.TTS):
             base_url (str): Base URL for Deepgram TTS API. Defaults to "https://api.deepgram.com/v1/speak"
             word_tokenizer (tokenize.WordTokenizer): Tokenizer for processing text. Defaults to basic WordTokenizer.
             http_session (aiohttp.ClientSession): Optional aiohttp session to use for requests.
+            redis_client (redis.Redis): Optional external Redis client for connection tracking. If not provided, ClientTracker will create its own connection.
 
         """  # noqa: E501
         super().__init__(
@@ -93,10 +101,7 @@ class TTS(tts.TTS):
         )
         self._session = http_session
         self._streams = weakref.WeakSet[SynthesizeStream]()
-
-        # Initialize client tracker
-        self._client_tracker: ClientTracker | None = None
-        self._client_tracker = ClientTracker()
+        self._redis_client = redis_client
 
         self._pool = utils.ConnectionPool[aiohttp.ClientWebSocketResponse](
             connect_cb=self._connect_ws,
@@ -124,8 +129,8 @@ class TTS(tts.TTS):
         )
         
         # Track connection creation
-        if self._client_tracker:
-            await self._client_tracker.track_connection_created()
+        if self._redis_client and hasattr(self._redis_client, 'track_connection_created'):
+            await self._redis_client.track_connection_created()
         
         return ws
 
@@ -133,8 +138,8 @@ class TTS(tts.TTS):
         print("Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
         
         # Track connection closure
-        if self._client_tracker:
-            await self._client_tracker.track_connection_closed()
+        if self._redis_client and hasattr(self._redis_client, 'track_connection_closed'):
+            await self._redis_client.track_connection_closed()
         
         await ws.close()
 
@@ -159,6 +164,11 @@ class TTS(tts.TTS):
         self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
     ) -> ChunkedStream:
         print("Livekit-Plugins-Deepgram: Synthesizing text")
+
+        # Track stream creation
+        if self._redis_client and hasattr(self._redis_client, 'track_stream_created'):
+            asyncio.create_task(self._redis_client.track_synthesize_started())
+            
         return ChunkedStream(tts=self, input_text=text, conn_options=conn_options)
 
     def stream(
@@ -167,29 +177,31 @@ class TTS(tts.TTS):
         print("Livekit-Plugins-Deepgram: Streaming text")
         stream = SynthesizeStream(tts=self, conn_options=conn_options)
         self._streams.add(stream)
+        
+        # Track stream creation
+        if self._redis_client and hasattr(self._redis_client, 'track_stream_created'):
+            asyncio.create_task(self._redis_client.track_stream_started())
+            
         return stream
 
     def prewarm(self) -> None:
         print("Livekit-Plugins-Deepgram: Prewarming TTS")
         
-        # Initialize client tracker if not already done
-        if self._client_tracker:
-            asyncio.create_task(self._client_tracker.initialize())
-        
         self._pool.prewarm()
 
     async def aclose(self) -> None:
         print("Livekit-Plugins-Deepgram: Closing TTS")
+
+        # Track stream creation
+        if self._redis_client and hasattr(self._redis_client, 'track_stream_created'):
+            asyncio.create_task(self._redis_client.track_stream_closed())
+        
         for stream in list(self._streams):
             await stream.aclose()
 
         self._streams.clear()
 
         await self._pool.aclose()
-        
-        # Close client tracker
-        if self._client_tracker:
-            await self._client_tracker.aclose()
 
 
 class ChunkedStream(tts.ChunkedStream):
@@ -343,6 +355,10 @@ class SynthesizeStream(tts.SynthesizeStream):
 
         async with self._tts._pool.connection(timeout=self._conn_options.timeout) as ws:
             print("Livekit-Plugins-Deepgram: Borrowing ws connection from pool")
+            
+            # Track WebSocket borrowing
+            if self._tts._redis_client and hasattr(self._tts._redis_client, 'track_ws_borrowed'):
+                await self._tts._redis_client.track_ws_borrowed()
             tasks = [
                 asyncio.create_task(send_task(ws)),
                 asyncio.create_task(recv_task(ws)),
@@ -353,3 +369,7 @@ class SynthesizeStream(tts.SynthesizeStream):
             finally:
                 await utils.aio.gracefully_cancel(*tasks)
                 print("Livekit-Plugins-Deepgram: Returning ws connection to pool")
+                
+                # Track WebSocket returning
+                if self._tts._redis_client and hasattr(self._tts._redis_client, 'track_ws_returned'):
+                    await self._tts._redis_client.track_ws_returned()
