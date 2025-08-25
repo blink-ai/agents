@@ -114,7 +114,7 @@ class TTS(tts.TTS):
         )
 
     async def _connect_ws(self, timeout: float) -> aiohttp.ClientWebSocketResponse:
-        print("Livekit-Plugins-Deepgram: Connecting to Deepgram WebSocket")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Connecting to Deepgram WebSocket")
         session = self._ensure_session()
         config = {
             "encoding": self._opts.encoding,
@@ -140,7 +140,7 @@ class TTS(tts.TTS):
         return ws
 
     async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        print("Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Closing Deepgram WebSocket")
         
         # Track connection closure
         if self._metric_logger and hasattr(self._metric_logger, 'track_connection_closed'):
@@ -170,7 +170,7 @@ class TTS(tts.TTS):
     def synthesize(
         self, text: str, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
     ) -> ChunkedStream:
-        print("Livekit-Plugins-Deepgram: Synthesizing text")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Synthesizing text")    
 
         # Track synthesize operation
         if self._metric_logger and hasattr(self._metric_logger, 'track_synthesize_started'):
@@ -183,7 +183,7 @@ class TTS(tts.TTS):
     def stream(
         self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
     ) -> SynthesizeStream:
-        print("Livekit-Plugins-Deepgram: Streaming text")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Streaming text")   
         stream = SynthesizeStream(tts=self, conn_options=conn_options)
         self._streams.add(stream)
         
@@ -196,12 +196,12 @@ class TTS(tts.TTS):
         return stream
 
     def prewarm(self) -> None:
-        print("Livekit-Plugins-Deepgram: Prewarming TTS")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Prewarming TTS")   
         
         self._pool.prewarm()
 
     async def aclose(self) -> None:
-        print("Livekit-Plugins-Deepgram: Closing TTS")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Closing TTS")
 
         # Track stream closure
         if self._metric_logger and hasattr(self._metric_logger, 'track_stream_closed'):
@@ -224,7 +224,7 @@ class ChunkedStream(tts.ChunkedStream):
         self._opts = replace(tts._opts)
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        print("Livekit-Plugins-Deepgram: Running ChunkedStream")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Running ChunkedStream")
         try:
             async with self._tts._ensure_session().post(
                 _to_deepgram_url(
@@ -277,7 +277,7 @@ class SynthesizeStream(tts.SynthesizeStream):
         self._segments_ch = utils.aio.Chan[tokenize.WordStream]()
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        print("Livekit-Plugins-Deepgram: Running SynthesizeStream")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Running SynthesizeStream")
         request_id = utils.shortuuid()
         output_emitter.initialize(
             request_id=request_id,
@@ -327,7 +327,7 @@ class SynthesizeStream(tts.SynthesizeStream):
     async def _run_ws(
         self, word_stream: tokenize.WordStream, output_emitter: tts.AudioEmitter
     ) -> None:
-        print("Livekit-Plugins-Deepgram: Running _run_ws")
+        print(f"{os.getpid()} Livekit-Plugins-Deepgram: Running _run_ws")
         segment_id = utils.shortuuid()
         output_emitter.start_segment(segment_id=segment_id)
 
@@ -367,7 +367,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                         logger.debug("Unknown message type: %s", resp)
 
         async with self._tts._pool.connection(timeout=self._conn_options.timeout) as ws:
-            print("Livekit-Plugins-Deepgram: Borrowing ws connection from pool")
+            print(f"{os.getpid()} Livekit-Plugins-Deepgram: Borrowing ws connection from pool")
             
             # Track WebSocket borrowing
             if self._tts._metric_logger and hasattr(self._tts._metric_logger, 'track_ws_borrowed'):
@@ -383,7 +383,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                 await asyncio.gather(*tasks)
             finally:
                 await utils.aio.gracefully_cancel(*tasks)
-                print("Livekit-Plugins-Deepgram: Returning ws connection to pool")
+                print(f"{os.getpid()} Livekit-Plugins-Deepgram: Returning ws connection to pool")
                 
                 # Track WebSocket returning
                 if self._tts._metric_logger and hasattr(self._tts._metric_logger, 'track_ws_returned'):
